@@ -1,0 +1,12 @@
+{:itonami.blueprint/id "cloud-itonami-1410"
+ :itonami.blueprint/name "Community Apparel Manufacturing"
+ :itonami.blueprint/isic-rev5 "1410"
+ :itonami.blueprint/domain :apparel/manufacturing
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:fair-labor :local-industry :supply-chain-transparency]
+ :itonami.blueprint/governor :apparel-governor
+ :itonami.blueprint/robotics true
+ :itonami.blueprint/required-technologies [:robotics :identity :forms :dmn :bpmn :audit-ledger :cae]
+ :itonami.blueprint/optional-technologies [:optimization :telemetry]
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/maturity :blueprint}
