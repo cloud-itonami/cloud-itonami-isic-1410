@@ -7,7 +7,19 @@
   (is (>= (count facts/catalog) 3))
   (is (contains? facts/catalog :VNM))
   (is (contains? facts/catalog :BGD))
-  (is (contains? facts/catalog :USA)))
+  (is (contains? facts/catalog :USA))
+  (is (contains? facts/catalog :IND)))
+
+(deftest india-requirements
+  "India jurisdiction should have official spec-basis for all requirements."
+  (let [reqs (facts/requirement-citations :IND)]
+    (is (map? reqs))
+    (is (contains? reqs :plant-registration))
+    (is (contains? reqs :labor-standards))
+    (is (contains? reqs :quality-labeling))
+    (doseq [[_key req] reqs]
+      (is (:spec-basis req) (str "Requirement should have spec-basis: " _key))
+      (is (seq (:evidence req)) (str "Requirement should list evidence checklist: " _key)))))
 
 (deftest jurisdiction-coverage-honest
   "Coverage reporting should be honest about scope."
@@ -43,7 +55,11 @@
 
   (testing "USA complete requirements"
     (let [checklist {:tariff-cert true :origin-marking true :wage-hour-record true :safety-training true :fiber-analysis true :label-affidavit true}]
-      (is (facts/required-evidence-satisfied? :USA checklist)))))
+      (is (facts/required-evidence-satisfied? :USA checklist))))
+
+  (testing "India complete requirements"
+    (let [checklist {:factory-license true :site-approval true :working-hours-record true :overtime-log true :label-content-verified true :fibre-composition-disclosed true}]
+      (is (facts/required-evidence-satisfied? :IND checklist)))))
 
 (deftest spec-basis-citations
   "All spec-basis citations should be strings (official references)."

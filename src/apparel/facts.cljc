@@ -3,6 +3,11 @@
   Every jurisdiction in this catalog is backed by an official spec-basis.
   NEVER invent requirements without an official citation.
 
+  :IND's labor-standards citation is corroborated via multiple independent
+  secondary sources rather than the primary Act text directly (see the
+  catalog entry's own note) -- moderate-high, not the direct-primary-text
+  confidence of its other two requirements.
+
   This is deliberately a starting catalog (honest coverage reporting) to
   prove the governor contract end-to-end, not a claim of global coverage.
   Adding a jurisdiction is additive: one map entry citing a real official
@@ -64,7 +69,39 @@
      :fiber-content {:description "Mandatory fiber-content labeling per FTC regulations"
                     :required true
                     :spec-basis "16 CFR § 303 (Textile Fiber Products Act)"
-                    :evidence [:fiber-analysis :label-affidavit]}}}})
+                    :evidence [:fiber-analysis :label-affidavit]}}}
+
+   ;; India -- WebFetch/curl-verified 2026-07-21. The Factories Act 1948's
+   ;; own official India Code text (indiacode.nic.in, the Government of
+   ;; India's official law repository) was read directly for Section 6;
+   ;; the working-hours sections (51/54) were corroborated across multiple
+   ;; independent secondary sources (indiankanoon.org and others) rather
+   ;; than fetched from the primary text directly, so that citation is
+   ;; MODERATE-HIGH rather than the direct-primary-text HIGH confidence of
+   ;; the other two entries. The IS 15798:2007 textile-labeling standard
+   ;; PDF (hosted at law.resource.org's official Bureau of Indian
+   ;; Standards Right-to-Information mirror) was downloaded and read
+   ;; directly, confirming its exact title. Note: this iteration also
+   ;; found that the Ministry of Textiles/BIS are actively drafting NEW,
+   ;; stricter mandatory labeling rules (as of this same week, per news
+   ;; coverage) -- deliberately NOT cited here since they are still in
+   ;; draft, not yet in force; only the existing, current IS 15798:2007
+   ;; standard is cited.
+   :IND
+   {:name "India"
+    :requirements
+    {:plant-registration {:description "Factory approval, licensing and registration with the State Government / Chief Inspector of Factories (applies to factories employing 10+ workers with power, or 20+ without power)"
+                         :required true
+                         :spec-basis "Factories Act, 1948, Section 6 (Approval, licensing and registration of factories) -- confirmed directly on indiacode.nic.in, the Government of India's official law repository"
+                         :evidence [:factory-license :site-approval]}
+     :labor-standards {:description "Maximum working hours for adult workers (48 hours/week, 9 hours/day)"
+                      :required true
+                      :spec-basis "Factories Act, 1948, Sections 51 and 54 (Weekly hours / Daily hours) -- corroborated across multiple independent secondary legal sources, not fetched from the primary Act text directly (MODERATE-HIGH confidence)"
+                      :evidence [:working-hours-record :overtime-log]}
+     :quality-labeling {:description "Textile labeling and marking requirements for consumer textiles/apparel"
+                       :required true
+                       :spec-basis "IS 15798:2007 (Textiles -- Requirements for labelling and marking of consumer textiles), Bureau of Indian Standards"
+                       :evidence [:label-content-verified :fibre-composition-disclosed]}}}})
 
 ;; ----------------------------- coverage reporting (honest) -----------------------------
 
