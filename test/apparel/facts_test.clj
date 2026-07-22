@@ -3,12 +3,29 @@
             [apparel.facts :as facts]))
 
 (deftest catalog-has-jurisdictions
-  "Catalog should define at least 3 jurisdictions with official spec-basis."
-  (is (>= (count facts/catalog) 3))
+  "Catalog should define at least 5 jurisdictions with official spec-basis."
+  (is (>= (count facts/catalog) 5))
   (is (contains? facts/catalog :VNM))
   (is (contains? facts/catalog :BGD))
   (is (contains? facts/catalog :USA))
-  (is (contains? facts/catalog :IND)))
+  (is (contains? facts/catalog :IND))
+  (is (contains? facts/catalog :GBR)))
+
+(deftest uk-restricted-substances
+  "UK (GBR) has a restricted-substances citation distinct in kind from
+  VNM/BGD/USA/IND's manufacturing-process/disclosure shape: a chemical-
+  composition limit on the finished garment itself (UK REACH Annex XVII
+  Entry 43, azo dyes)."
+  (let [reqs (facts/requirement-citations :GBR)]
+    (is (map? reqs))
+    (is (contains? reqs :restricted-substances))
+    (doseq [[_key req] reqs]
+      (is (:spec-basis req) (str "Requirement should have spec-basis: " _key))
+      (is (seq (:evidence req)) (str "Requirement should list evidence checklist: " _key)))
+    (is (facts/required-evidence-satisfied? :GBR
+          {:azo-dye-test-report true :aromatic-amine-concentration-below-threshold true}))
+    (is (not (facts/required-evidence-satisfied? :GBR
+               {:azo-dye-test-report true})))))
 
 (deftest india-requirements
   "India jurisdiction should have official spec-basis for all requirements."

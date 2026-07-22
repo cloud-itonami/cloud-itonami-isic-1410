@@ -101,7 +101,25 @@
      :quality-labeling {:description "Textile labeling and marking requirements for consumer textiles/apparel"
                        :required true
                        :spec-basis "IS 15798:2007 (Textiles -- Requirements for labelling and marking of consumer textiles), Bureau of Indian Standards"
-                       :evidence [:label-content-verified :fibre-composition-disclosed]}}}})
+                       :evidence [:label-content-verified :fibre-composition-disclosed]}}}
+
+   ;; United Kingdom -- direct curl-verified 2026-07-22 against
+   ;; legislation.gov.uk (The National Archives' official UK legislation
+   ;; site, HTTP 200, no anti-bot blocking encountered). UK REACH is
+   ;; retained EU Regulation (EC) No 1907/2006 as it continues to apply in
+   ;; UK domestic law post-Brexit. This is the catalog's first
+   ;; CHEMICAL-SAFETY/restricted-substances requirement -- genuinely
+   ;; distinct in kind from VNM/BGD/USA/IND's plant-registration/
+   ;; labor-standards/quality-labeling/tariff-compliance/fiber-content
+   ;; shape, which regulate the manufacturing process or disclosure, not
+   ;; the chemical composition of the finished garment itself.
+   :GBR
+   {:name "United Kingdom"
+    :requirements
+    {:restricted-substances {:description "Azo dyes that may release listed aromatic amines above 30 mg/kg (0.003% by weight) must not be used in textile/leather articles which may come into direct and prolonged contact with human skin or the oral cavity; separately, azodyes listed in Appendix 9 must not be placed on the market or used, as substances or in mixtures, at concentrations above 0.1% by weight where intended for colouring textile/leather articles"
+                            :required true
+                            :spec-basis "UK REACH (retained Regulation (EC) No 1907/2006) Annex XVII, Entry 43 (Azocolourants and Azodyes)"
+                            :evidence [:azo-dye-test-report :aromatic-amine-concentration-below-threshold]}}}})
 
 ;; ----------------------------- coverage reporting (honest) -----------------------------
 
