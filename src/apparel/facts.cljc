@@ -119,7 +119,47 @@
     {:restricted-substances {:description "Azo dyes that may release listed aromatic amines above 30 mg/kg (0.003% by weight) must not be used in textile/leather articles which may come into direct and prolonged contact with human skin or the oral cavity; separately, azodyes listed in Appendix 9 must not be placed on the market or used, as substances or in mixtures, at concentrations above 0.1% by weight where intended for colouring textile/leather articles"
                             :required true
                             :spec-basis "UK REACH (retained Regulation (EC) No 1907/2006) Annex XVII, Entry 43 (Azocolourants and Azodyes)"
-                            :evidence [:azo-dye-test-report :aromatic-amine-concentration-below-threshold]}}}})
+                            :evidence [:azo-dye-test-report :aromatic-amine-concentration-below-threshold]}}}
+
+   ;; Germany -- direct curl-verified 2026-07-22 against gesetze-im-internet.de
+   ;; (the German Federal Ministry of Justice / Bundesamt fuer Justiz's
+   ;; official law repository, HTTP 200 on both cites below, no anti-bot
+   ;; blocking encountered). Both requirements are direct-primary-text HIGH
+   ;; confidence -- the exact operative sentences were read from the cited
+   ;; sections themselves, not paraphrased from secondary sources:
+   ;;   - GewO Section 14(1): "Wer den selbstaendigen Betrieb eines stehenden
+   ;;     Gewerbes ... anfaengt, muss dies der zustaendigen Behoerde
+   ;;     gleichzeitig anzeigen." (Anyone who commences the independent
+   ;;     operation of a stationary trade business must simultaneously notify
+   ;;     the competent authority) -- confirmed at
+   ;;     https://www.gesetze-im-internet.de/gewo/__14.html
+   ;;   - ArbZG Section 3: "Die werktaegliche Arbeitszeit der Arbeitnehmer darf
+   ;;     acht Stunden nicht ueberschreiten. Sie kann auf bis zu zehn Stunden
+   ;;     nur verlaengert werden, wenn innerhalb von sechs Kalendermonaten oder
+   ;;     innerhalb von 24 Wochen im Durchschnitt acht Stunden werktaeglich
+   ;;     nicht ueberschritten werden." (The working day of employees may not
+   ;;     exceed eight hours. It may be extended to up to ten hours only if
+   ;;     the eight-hour daily average is not exceeded within six calendar
+   ;;     months or 24 weeks) -- confirmed at
+   ;;     https://www.gesetze-im-internet.de/arbzg/__3.html
+   ;; A German national textile-labeling law (TextilKennzG) and the EU
+   ;; textile-fibre-labelling Regulation (EU) No 1007/2011 that superseded it
+   ;; were investigated as a possible third (quality-labeling) requirement,
+   ;; but neither could be located/confirmed with a working direct fetch in
+   ;; this session (TextilKennzG is no longer listed on gesetze-im-internet.de;
+   ;; EUR-Lex returned an anti-bot HTTP 202 challenge page with no text) --
+   ;; deliberately NOT cited to avoid a fabricated/paraphrased-only claim.
+   :DEU
+   {:name "Germany"
+    :requirements
+    {:plant-registration {:description "Notification (Gewerbeanzeige) to the competent local trade authority upon commencing operation of a manufacturing business (stehendes Gewerbe), including garment/apparel manufacturing plants"
+                         :required true
+                         :spec-basis "Gewerbeordnung (GewO) Section 14 (Anzeigepflicht -- notification obligation) -- confirmed directly on gesetze-im-internet.de, the German Federal Ministry of Justice's official law repository"
+                         :evidence [:trade-notification :business-registration-confirmation]}
+     :labor-standards {:description "Maximum daily working hours for employees (8 hours/day, extendable to 10 hours only where the 8-hour daily average is maintained over 6 calendar months or 24 weeks)"
+                      :required true
+                      :spec-basis "Arbeitszeitgesetz (ArbZG) Section 3 (Arbeitszeit der Arbeitnehmer / working hours of employees) -- confirmed directly on gesetze-im-internet.de"
+                      :evidence [:working-hours-record :overtime-averaging-log]}}}})
 
 ;; ----------------------------- coverage reporting (honest) -----------------------------
 
