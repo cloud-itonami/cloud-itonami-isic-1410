@@ -1,8 +1,16 @@
 (ns apparel.phase
   "Phase table for Apparel Manufacturing Plant Operations state graph.
-  Defines the graph structure and phase transitions.
-  Built on langgraph-clj StateGraph for portable execution
-  (JVM, ClojureScript, Chicory, browser-native WASM).")
+
+  NOTE: this is a plain descriptive EDN map of the intended graph
+  topology (nodes/edges/predicates) plus small structural helpers
+  (`starting-node`, `is-terminal?`) used by tests and `sim.cljc` --
+  it is NOT compiled or run through `langgraph.graph/state-graph`.
+  `apparel.sim` drives the actual workflow as a plain function
+  pipeline (advisor proposal -> `governor/evaluate`), not this table.
+  A real langgraph-clj StateGraph (with `g/run*`/interrupt-before
+  human sign-off) is a known gap for this actor's upgrade from
+  :blueprint to :implemented; see e.g. cloud-itonami-isco-1221's
+  salesmgmt.actor for the target shape.")
 
 ;; ----------------------------- phase constants -----------------------------
 
