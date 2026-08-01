@@ -1,7 +1,18 @@
 (ns apparel.store
-  "In-memory store for apparel manufacturing plant operations state.
-  This is a reference implementation; production systems would use Datomic
-  or similar persistent event store for audit and replay.")
+  "SSoT for the apparel-manufacturing plant-operations coordinator.
+
+  In-memory reference implementation; production systems would use Datomic or a
+  similar persistent event store. The read accessors and guards below are the
+  facts the governor censors against — **they are never inferred from a
+  proposal**, which is the whole point of having a store the advisor cannot
+  write to directly.
+
+  ## 台帳は append-only
+
+  『どのバッチが誰の承認で記録されたか / どの提案が何の違反で止まったか』は
+  常に不変ログへの query。ここが監査可能性の実体で、**確定した事実と止めた事実の
+  両方**を積む —— 止めた方を残さないと『提案されなかった』と『提案されたが
+  止まった』の区別がつかない。")
 
 ;; ----------------------------- store initialization -----------------------------
 
@@ -78,3 +89,48 @@
   (let [b (production-batch st batch-id)
         plant-id (:plant b)]
     (plant-verified? st plant-id)))
+
+;; ----------------------------- commit / ledger -----------------------------
+
+(defn commit-record!
+  "確定した提案を SSoT に反映する。
+
+  `record` は `{:effect .. :path [..] :value ..}`。effect ごとに書き先を固定して
+  あるのは、advisor が任意の場所に書ける経路を作らないため —— 提案が持ち込める
+  のは『どのエンティティを、宣言済みの effect の形で』までで、書き先そのものは
+  この関数が決める。"
+  [st {:keys [effect path value]}]
+  (let [id (first path)]
+    (case effect
+      :batch/upsert
+      (swap! (:data st) update-in [:production-batches id] merge value)
+
+      :maintenance/schedule
+      (swap! (:data st) update-in [:maintenance-log id] merge value)
+
+      :shipment/coordinate
+      (swap! (:data st) update-in [:shipments id] merge value)
+
+      :quality-defect/flag
+      (swap! (:data st) update :quality-defects (fnil conj []) (assoc value :id id))
+
+      ;; 未知の effect は書かない。governor が allowlist で止めているので通常
+      ;; ここには来ないが、**来たときに黙って書かない**のが二重の床。
+      nil)
+    nil))
+
+(defn append-ledger!
+  "不変の決定事実を 1 件積む。"
+  [st fact]
+  (swap! (:data st) update :ledger (fnil conj []) fact)
+  fact)
+
+(defn get-ledger
+  "append-only の決定台帳。"
+  [st]
+  (get @(:data st) :ledger []))
+
+(defn quality-defects
+  "flag された品質不良の append-only ログ。"
+  [st]
+  (get @(:data st) :quality-defects []))
