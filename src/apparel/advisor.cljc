@@ -1,6 +1,12 @@
 (ns apparel.advisor
-  "Apparel Manufacturing Plant Operations Advisor -- the LLM-driven suggestion layer.
-  Proposes operations to the Governor for approval.")
+  "Apparel Manufacturing Plant Operations Advisor —— 封じ込めた提案層。
+
+  **提案しか返さない。** 何が SSoT に書かれるかは `apparel.actor/op->effect` の
+  閉じた表が決め、通してよいかは `apparel.governor` が決める。この ns が賢く
+  なっても、賢くなくなっても、その境界は動かない —— それが封じ込めの意味。
+
+  `Advisor` protocol 越しに注入するので、決定論の mock と実 LLM を差し替えても
+  actor のコアは変わらない。")
 
 ;; ----------------------------- mock advisor for testing -----------------------------
 
@@ -53,3 +59,35 @@
    :value {:evidence {:export-permit true :shipping-manifest true :invoice-attached true}
            :confidence 0.89
            :detail "Shipment ready for export coordination"}})
+
+;; ----------------------------- Advisor protocol -----------------------------
+
+(defprotocol Advisor
+  (-advise [advisor store request] "store + request -> proposal map"))
+
+(defn- infer
+  "request を対応する提案生成器に振る。
+
+  `:subject` 以外の入力を取らないのは、この mock が **store の事実だけ**から
+  提案を組むため（引数で結論を渡せる形にすると、governor が censor する対象が
+  提案ではなく呼び出し側の意図になる）。"
+  [_st {:keys [op subject value]}]
+  (case op
+    :proposal/log-production-batch (batch-log-proposal nil subject)
+    :proposal/schedule-maintenance (maintenance-proposal nil subject)
+    :proposal/flag-quality-defect  (quality-defect-proposal
+                                    nil subject (get value :defect-type "unspecified"))
+    :actuation/coordinate-shipment (shipment-proposal nil subject)
+    {:op op :subject subject :effect :propose :cites []
+     :value {:evidence {} :confidence 0.0 :detail "未対応の操作"}}))
+
+(defn deterministic-advisor
+  "決定論の advisor。既定であり、テストの基準。"
+  []
+  (reify Advisor (-advise [_ st req] (infer st req))))
+
+;; `mock-advisor` は上の data-map を返す旧 API（`apparel.sim` が使っている）。
+;; actor 経路では protocol 実装が要るので、こちらを protocol にも適合させる。
+(extend-protocol Advisor
+  #?(:clj clojure.lang.IPersistentMap :cljs PersistentArrayMap)
+  (-advise [_ st req] (infer st req)))

@@ -6,9 +6,22 @@ apparel (except fur) — the downstream *clothing* (衣) vertical of the
 [cloud-itonami-isic-1311](https://github.com/cloud-itonami/cloud-itonami-isic-1311)
 (textile spinning) upstream.
 
-**Maturity: `:blueprint`** — this repository publishes the business
-blueprint only. There is **no actor implementation yet**, and none is
-claimed. ISIC division 13-14 (textiles/apparel) sits in **rollout
+**Maturity: `:implemented`** — `src/apparel/` implements the
+`ApparelOperationActor` as a `langgraph.graph` StateGraph
+(`apparel.actor/build`) wired to the contained advisor
+(`apparel.advisor`, injected behind a protocol) and the independent
+`apparel.governor`:
+`:intake -> :advise -> :govern -> :decide -+-> :commit (clean)
++-> :request-approval (interrupt-before, human-in-the-loop)
++-> :hold (hard violation)`.
+
+不変条件は 1 つ: **governor が拒否した書き込みは決して起きない**。
+SSoT を書くノードは `:commit` の 1 箇所だけで、止めた事実も台帳に積む
+（残さないと『提案されなかった』と『提案されたが止まった』の区別がつかない）。
+phase gate が緩められるのは『自動で確定してよいか』だけで『通してよいか』
+ではなく、HARD 違反は phase では覆せない。
+
+39 tests / 149 assertions green（`clojure -M:dev:test`）。 ISIC division 13-14 (textiles/apparel) sits in **rollout
 Wave 3 (production/robotics)** of the reverse-toposort plan
 (ADR-2607121000): implementation is gated on the robotics premise
 (ADR-2607011000). Publishing the blueprint now is deliberate
