@@ -1,56 +1,118 @@
 (ns apparel.sim
-  "Simulation harness for Apparel Manufacturing Plant Operations Coordinator actor.
-  Run with: clojure -M:dev:run"
-  (:require [apparel.advisor :as advisor]
-            [apparel.governor :as governor]
-            [apparel.store :as store]))
+  "Demo driver -- `clojure -M:dev:run`. Walks a clean apparel plant
+  through order intake -> pattern-spec (escalate/approve) ->
+  quality-flag (escalate/approve) -> shipment coordination
+  (escalate/approve), then shows HARD-hold scenarios: a mis-wired
+  request whose own `:effect` is not `:propose`, an unrecognized op,
+  a shipment against an UNVERIFIED order, a shipment that would exceed
+  the order's own logged quantity, a proposal that tries to directly
+  operate a sewing machine (permanently blocked), a quality-flag that
+  tries to finalize a safety cert (permanently blocked), and a
+  pattern-spec with a fabricated size-code."
+  (:require [langgraph.graph :as g]
+            [apparel.store :as store]
+            [apparel.operation :as op]))
 
-(defn -main
-  "Drive a simple apparel manufacturing workflow through the governor."
-  [& _args]
-  (let [st (store/mem-store)
-        adv (advisor/mock-advisor)
+(def coordinator {:actor-id "coord-1" :actor-role :plant-coordinator :phase 3})
 
-        ;; Scenario 1: Production batch logging (verified batch)
-        batch-proposal (advisor/batch-log-proposal adv "batch-001")
-        batch-eval (governor/evaluate batch-proposal st)
+(defn- exec-op [actor tid request context]
+  (g/run* actor {:request request :context context} {:thread-id tid}))
 
-        ;; Scenario 2: Quality defect flagging (always escalates)
-        defect-proposal (advisor/quality-defect-proposal adv "batch-002" "labeling-error")
-        defect-eval (governor/evaluate defect-proposal st)
+(defn- approve! [actor tid]
+  (g/run* actor {:approval {:status :approved :by "coord-1"}} {:thread-id tid :resume? true}))
 
-        ;; Scenario 3: Shipment coordination (high-stakes actuation)
-        shipment-proposal (advisor/shipment-proposal adv "ship-001")
-        shipment-eval (governor/evaluate shipment-proposal st)
+(defn -main [& _args]
+  (let [db (-> (store/mem-store) (store/sample-data!))
+        actor (op/build db)]
 
-        ;; Scenario 4: Maintenance scheduling
-        maintenance-proposal (advisor/maintenance-proposal adv "maint-001")
-        maintenance-eval (governor/evaluate maintenance-proposal st)]
+    (println "== order-intake order-001 (clean patch -> phase-3 auto-commit) ==")
+    (println (exec-op actor "t1"
+                       {:op :order-intake :effect :propose :subject "order-001"
+                        :patch {:last-assessed "2026-08-01" :style "cotton-shirt-XL"}}
+                       coordinator))
 
-    (println "=== APPAREL MANUFACTURING PLANT OPERATIONS COORDINATOR SIMULATION ===\n")
+    (println "== pattern-spec pattern-001 (size-spec metadata -- escalates, approve) ==")
+    (let [r (exec-op actor "t2"
+                      {:op :pattern-spec :effect :propose :subject "pattern-001"
+                       :value {:size-code :L :style "cotton-shirt"}}
+                      coordinator)]
+      (println r)
+      (println "-- human pattern-room supervisor approves --")
+      (println (approve! actor "t2")))
 
-    (println "--- Scenario 1: Production Batch Logging (Verified Batch) ---")
-    (println "Proposal:" batch-proposal)
-    (println "Evaluation:" batch-eval)
-    (println "Result:" (if (:clean? batch-eval) "APPROVED" "ESCALATE TO HUMAN"))
-    (println)
+    (println "== quality-flag flag-1 on order-001 (always escalates -- approve) ==")
+    (let [r (exec-op actor "t3"
+                      {:op :quality-flag :effect :propose :subject "flag-1"
+                       :value {:order-id "order-001" :concern-type :labeling
+                               :severity :moderate
+                               :description "繊維組成ラベル表記が仕様と不一致"}}
+                      coordinator)]
+      (println r)
+      (println "-- human plant supervisor approves --")
+      (println (approve! actor "t3")))
 
-    (println "--- Scenario 2: Quality Defect Flagging (Always Escalates) ---")
-    (println "Proposal:" defect-proposal)
-    (println "Evaluation:" defect-eval)
-    (println "Hard Violations:" (:hard-violations defect-eval))
-    (println "Result:" (if (:holds? defect-eval) "ESCALATE TO HUMAN" "ERROR"))
-    (println)
+    (println "== shipment-coordinate ship-1 on order-001 (verified, within qty -- escalates, approve) ==")
+    (let [r (exec-op actor "t4"
+                      {:op :shipment-coordinate :effect :propose :subject "ship-1"
+                       :value {:order-id "order-001" :quantity 50
+                               :destination "buyer-acme-warehouse"}}
+                      coordinator)]
+      (println r)
+      (println "-- human shipping approver approves --")
+      (println (approve! actor "t4")))
 
-    (println "--- Scenario 3: Shipment Coordination (High-Stakes Actuation) ---")
-    (println "Proposal:" shipment-proposal)
-    (println "Evaluation:" shipment-eval)
-    (println "Soft Violations:" (:soft-violations shipment-eval))
-    (println "Result:" (if (:holds? shipment-eval) "HOLD - Hard violations" "ESCALATE - High-stakes actuation"))
-    (println)
+    (println "\n-- HARD-hold scenarios --\n")
 
-    (println "--- Scenario 4: Maintenance Scheduling ---")
-    (println "Proposal:" maintenance-proposal)
-    (println "Evaluation:" maintenance-eval)
-    (println "Result:" (if (:clean? maintenance-eval) "APPROVED" "ESCALATE TO HUMAN"))
-    (println)))
+    (println "== order-intake with :effect other than :propose -> HARD hold ==")
+    (println (exec-op actor "t5"
+                       {:op :order-intake :effect :direct-write :subject "order-001"
+                        :patch {:style "x"}}
+                       coordinator))
+
+    (println "== unrecognized op -> HARD hold ==")
+    (println (exec-op actor "t6"
+                       {:op :actuate-sewing-machine :effect :propose :subject "order-001"}
+                       coordinator))
+
+    (println "== shipment-coordinate on order-003 (UNVERIFIED -> HARD hold) ==")
+    (println (exec-op actor "t7"
+                       {:op :shipment-coordinate :effect :propose :subject "ship-2"
+                        :value {:order-id "order-003" :quantity 10
+                                :destination "buyer-hakusen-warehouse"}}
+                       coordinator))
+
+    (println "== shipment-coordinate on order-002 (would exceed quantity -> HARD hold) ==")
+    (println (exec-op actor "t8"
+                       {:op :shipment-coordinate :effect :propose :subject "ship-3"
+                        :value {:order-id "order-002" :quantity 50
+                                :destination "buyer-nishijin-warehouse"}}
+                       coordinator))
+
+    (println "== order-intake with :direct-operate? true -> HARD hold, PERMANENT ==")
+    (println (exec-op actor "t9"
+                       {:op :order-intake :effect :propose :subject "order-001"
+                        :patch {:direct-operate? true :style "force-run-sewing"}}
+                       coordinator))
+
+    (println "== quality-flag with :safety-cert-finalized? true -> HARD hold, PERMANENT ==")
+    (println (exec-op actor "t10"
+                       {:op :quality-flag :effect :propose :subject "flag-2"
+                        :value {:order-id "order-001" :concern-type :safety
+                                :severity :high :safety-cert-finalized? true
+                                :description "安全証明書を最終確定"}}
+                       coordinator))
+
+    (println "== pattern-spec with fabricated size-code -> HARD hold ==")
+    (println (exec-op actor "t11"
+                       {:op :pattern-spec :effect :propose :subject "pattern-001"
+                        :value {:size-code :mega-plus-select}}
+                       coordinator))
+
+    (println "\n== audit ledger ==")
+    (doseq [f (store/ledger db)] (println f))
+
+    (println "\n== quality flags ==")
+    (doseq [r (store/quality-flags db)] (println r))
+
+    (println "\n== draft shipment records ==")
+    (doseq [r (store/shipment-history db)] (println r))))

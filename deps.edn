@@ -1,19 +1,24 @@
 {:paths ["src"]
  ;; langgraph brings langchain transitively (both zero-/single-dep,
- ;; all .cljc -> portable to JVM / SCI / ClojureScript / GraalVM).
- ;; For monorepo workspace dev, uncomment :local/root and use :dev alias.
- ;; For standalone forks, use git coordinates to kotoba-lang/langgraph.
+ ;; all .cljc -> portable to JVM / SCI / ClojureScript / GraalVM). Both
+ ;; live in the kotoba-lang org of this workspace. This repo is
+ ;; standalone (forkable outside the workspace); the :local/root paths
+ ;; only resolve inside the monorepo checkout -- a standalone fork
+ ;; should override them with git coordinates. langchain is pinned here
+ ;; directly (not only under :dev) so a bare `clojure -M:test` works
+ ;; offline inside the monorepo checkout without depending on
+ ;; langgraph's own transitive git/sha pin being fetchable.
  :deps {io.github.kotoba-lang/langgraph
-        {:git/url "https://github.com/kotoba-lang/langgraph.git"
-         :git/sha "6daa48e7bf86acc13d44804104fced4938530fd2"}}
+        {:local/root "../../kotoba-lang/langgraph"}
+        io.github.kotoba-lang/langchain
+        {:local/root "../../kotoba-lang/langchain"}}
  :aliases
- {;; monorepo workspace dev -- pin both to local checkout
-  :dev-local {:override-deps
-              {io.github.kotoba-lang/langgraph
-               {:local/root "../../kotoba-lang/langgraph"}
-               io.github.kotoba-lang/langchain
-               {:local/root "../../kotoba-lang/langchain"}}}
-  :dev {}
+ {;; offline workspace dev -- pin transitive langchain to local checkout
+  ;; (kept for parity with sibling actors' deps.edn shape; redundant
+  ;; with the top-level :deps override above).
+  :dev {:override-deps
+        {io.github.kotoba-lang/langchain
+         {:local/root "../../kotoba-lang/langchain"}}}
   ;; clojure -M:dev:run  -> drive the demo through one OperationActor
   :run {:main-opts ["-m" "apparel.sim"]}
   :test {:extra-paths ["test"]

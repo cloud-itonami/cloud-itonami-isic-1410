@@ -1,131 +1,196 @@
 (ns apparel.governor
-  "Apparel Manufacturing Plant Operations Governor -- the independent compliance layer that earns
-  the Apparel Operations Advisor the right to propose and log actions.
-  The LLM has no notion of labor standards, quality regulations, or when a shipment
-  or batch-logging is a real-world actuation, so this MUST be a separate system able to
-  *reject* a proposal and fall back to HOLD.
+  "Apparel Governor -- the independent compliance layer that earns the
+  ApparelAdvisor the right to commit. The advisor has no notion of
+  whether an order it wants to ship against has actually been
+  verified/registered, whether a proposal secretly tries to DIRECTLY
+  OPERATE a sewing machine / cutter, whether a quality-flag secretly
+  tries to FINALIZE a safety certificate, or when an act stops being
+  a coordination proposal and becomes production-line control, so
+  this MUST be a separate system able to *reject* a proposal and fall
+  back to HOLD.
 
-  HARD violations (a human approver CANNOT override):
-    1. Spec-basis       -- no official jurisdiction citation
-    2. Plant not verified -- batch plant registration must be confirmed
-    3. Batch not verified -- batch quality must be confirmed before logging/shipment
-    4. Direct equipment control -- NO cutting/sewing-line operation (those remain engineer exclusive)
-    5. Quality defects  -- ALWAYS escalate (never silently log)
+  `:itonami.blueprint/governor` is `:apparel-governor`.
 
-  SOFT violation (can be approved by human):
-    6. Confidence floor / high-stakes actuation -- low confidence OR real actuation
+  Checks below, ALL HARD violations except the confidence/high-stakes
+  gate (SOFT -- asks a human to look, and the human may approve):
 
-  CRITICAL SCOPE BOUNDARY:
-  This actor coordinates LOGISTICS and COMPLIANCE PAPERWORK around apparel manufacturing.
-  It does NOT:
-    - Operate cutting equipment or sewing machines
-    - Make design decisions about patterns or materials
-    - Control production-line parameters (speed, tension, etc.)
-    - Approve fabric quality (that's the mill's responsibility)
-
-  Those remain the exclusive authority of plant production engineers."
-  (:require [apparel.store :as store]))
+    1. Request-level propose-only  -- caller's `:effect` MUST be
+                                       `:propose`. HARD, unconditional.
+    2. Closed op allowlist         -- `:op` one of the four ops this
+                                       actor coordinates. HARD.
+    3. Closed effect allowlist     -- proposal's `:effect` one of the
+                                       four propose-shaped effects.
+                                       Never a sewing-machine-control
+                                       or safety-cert-decision effect.
+                                       HARD, PERMANENT.
+    4. Sewing-control blocked      -- any proposal whose `:value`
+                                       declares `:direct-operate? true`
+                                       (sewing/cutting/pressing machine
+                                       control). HARD, PERMANENT.
+    5. Safety-cert-decision blocked -- any proposal whose `:value`
+                                       declares `:safety-cert-finalized?
+                                       true`. This actor may FLAG a
+                                       quality/safety concern, never
+                                       finalize a safety certificate.
+                                       HARD, PERMANENT.
+    6. Order not verified/
+       registered                  -- for `:shipment-coordinate`,
+                                       independently verify the
+                                       referenced order. HARD.
+    7. Shipment quantity exceeded  -- for `:shipment-coordinate`,
+                                       recompute headroom against the
+                                       order's own recorded quantity.
+                                       HARD.
+    8. Invalid size-code           -- for `:pattern-spec`, reject
+                                       fabricated size codes. HARD.
+    9. Confidence floor / high-
+       stakes gate                 -- low confidence OR stake in
+                                       high-stakes
+                                       (`:coordination/quality-concern`
+                                       always set for `:quality-flag`)
+                                       -- escalate to a human. SOFT."
+  (:require [apparel.registry :as registry]
+            [apparel.store :as store]))
 
 (def confidence-floor 0.6)
 
-(def high-stakes
-  "Operations that require human sign-off for real-world actuation:
-  Shipment coordination with export/tariff implications."
-  #{:actuation/coordinate-shipment})
+(def allowed-ops
+  "Closed allowlist of coordination proposals this actor may ever route."
+  #{:order-intake :pattern-spec :quality-flag :shipment-coordinate})
 
-(def process-control-keywords
-  "Words that indicate process-engineering authority (FORBIDDEN for this actor).
-  If a proposal mentions any of these, it's a hard block."
-  #{"speed" "tension" "needle" "presser" "feed" "stitch" "pattern"
-    "cutting" "sewing" "operate" "control" "blade" "angle" "parameter"
-    "thread" "adjust" "trim"})
+(def allowed-proposal-effects
+  "Closed allowlist of SSoT-mutation effects a proposal may declare --
+  all four are propose-shaped drafts, NEVER a sewing-machine-control
+  effect and NEVER a safety-cert-finalization effect."
+  #{:order/upsert :pattern/upsert :quality/flag :shipment/propose})
+
+(def high-stakes
+  "Stakes grave enough to always require a human, even when clean.
+  Quality concerns always demand human eyes regardless of confidence."
+  #{:coordination/quality-concern})
 
 ;; ----------------------------- checks -----------------------------
 
-(defn- spec-basis-violations
-  "A proposal with no spec-basis citation is a HARD violation --
-  never invent a jurisdiction's requirements."
-  [proposal _st]
-  (let [op (:op proposal)]
-    (when (contains? #{:actuation/coordinate-shipment :proposal/flag-quality-defect} op)
-      (when (or (empty? (:cites proposal))
-                (and (contains? (:value proposal) :spec-basis)
-                     (nil? (:spec-basis (:value proposal)))))
-        [{:rule :no-spec-basis
-          :detail "公式な仕様基準の引用が無い提案は処理できない"}]))))
+(defn- no-propose-effect-violations
+  "HARD, unconditional, evaluated first: the caller's own request MUST
+  declare `:effect :propose`."
+  [{:keys [effect]}]
+  (when (not= effect :propose)
+    [{:rule :not-propose-effect
+      :detail (str "request :effect は :propose のみ許可 (受信値: " (pr-str effect) ")")}]))
 
-(defn- plant-verification-violations
-  "Batch must belong to a verified plant before any action."
-  [{:keys [op subject]} st]
-  (when (contains? #{:proposal/log-production-batch :actuation/coordinate-shipment} op)
-    (let [batch (store/production-batch st subject)
-          plant-id (:plant batch)]
-      (when plant-id
-        (when-not (store/plant-verified? st plant-id)
-          [{:rule :plant-not-verified
-            :detail "製造施設が登録・検証されていない"}])))))
+(defn- unknown-op-violations
+  "HARD: `:op` must be one of the closed allowlist."
+  [{:keys [op]}]
+  (when-not (contains? allowed-ops op)
+    [{:rule :unknown-op
+      :detail (str op " はこの actor が扱う操作の許可リストに無い")}]))
 
-(defn- batch-verification-violations
-  "Batch must be verified before logging or shipment."
-  [{:keys [op subject]} st]
-  (when (contains? #{:proposal/log-production-batch :actuation/coordinate-shipment} op)
-    (when-not (store/batch-verified? st subject)
-      [{:rule :batch-not-verified
-        :detail "製造ロットが検証されていない"}])))
+(defn- equipment-control-blocked-violations
+  "HARD, PERMANENT: proposal `:effect` must be within the closed
+  propose-shaped allowlist. Anything else (sewing-machine control,
+  safety-cert decision, hallucinated actuation) is scope boundary."
+  [proposal]
+  (when-not (contains? allowed-proposal-effects (:effect proposal))
+    [{:rule :equipment-control-blocked
+      :detail (str "proposal :effect (" (pr-str (:effect proposal))
+                   ") は縫製・裁断設備の直接操作、または安全証明書の最終決定に"
+                   "該当する可能性があり、恒久的に禁止")}]))
 
-(defn- process-control-block-violations
-  "HARD BLOCK: This actor does NOT operate production equipment.
-  If a proposal mentions cutting speed, sewing tension, needle control, or other
-  process parameters, reject it immediately.
-  Those decisions remain the exclusive authority of licensed production engineers."
-  [proposal _st]
-  (let [detail (str (:detail (:value proposal) "") " " (:op proposal))
-        words (re-seq #"\w+" (.toLowerCase detail))
-        forbidden (some #(contains? process-control-keywords %) words)]
-    (when forbidden
-      [{:rule :process-control-forbidden
-        :detail (str "設備操作は認可エンジニアの排他的権限です。"
-                    "この提案には禁止キーワード '" forbidden "' が含まれています。")}])))
+(defn- sewing-control-blocked-violations
+  "HARD, PERMANENT, unconditional: any proposal whose `:value` declares
+  `:direct-operate? true` is attempting to directly operate a sewing /
+  cutting / pressing machine. This actor may only ever propose
+  coordination drafts. No override, ever."
+  [proposal]
+  (when (true? (:direct-operate? (:value proposal)))
+    [{:rule :sewing-control-blocked
+      :detail "縫製・裁断・プレス設備の直接操作提案は恒久的に禁止 -- 調整提案(draft)のみ許可"}]))
 
-(defn- quality-defect-escalation-violations
-  "Quality defects ALWAYS escalate to human. Never silently log a defect."
-  [{:keys [op]} _st]
-  (when (= op :proposal/flag-quality-defect)
-    [{:rule :quality-defect-escalates
-      :detail "品質欠陥は必ず人間にエスカレートされる"}]))
+(defn- safety-cert-decision-blocked-violations
+  "HARD, PERMANENT, unconditional: any proposal whose `:value` declares
+  `:safety-cert-finalized? true` is attempting to finalize a safety
+  certificate -- a human plant supervisor / certifying body act this
+  actor may never perform. This actor may only FLAG a quality/safety
+  concern. No override, ever."
+  [proposal]
+  (when (true? (:safety-cert-finalized? (:value proposal)))
+    [{:rule :safety-cert-decision-blocked
+      :detail "安全証明書(safety cert)の最終確定提案は恒久的に禁止 -- 懸念の報告(flag)のみ許可、確定は人間の工場責任者/認証機関の専権"}]))
 
-(defn- confidence-gate-violations
-  "Low confidence or high-stakes actuation -> escalate to human."
-  [{:keys [op]} {:keys [confidence]}]
-  (let [confidence (or confidence 0.5)]
-    (when (or (< confidence confidence-floor)
-              (contains? high-stakes op))
-      [{:rule :escalate
-        :detail (if (< confidence confidence-floor)
-                  (str "信頼度が低い (confidence=" confidence ")")
-                  "実際の操作には人間の承認が必要")}])))
+(defn- order-not-verified-violations
+  "For `:shipment-coordinate`, INDEPENDENTLY verify the referenced
+  order exists and is both verified? AND registered?."
+  [{:keys [op]} proposal st]
+  (when (= op :shipment-coordinate)
+    (let [order-id (:order-id (:value proposal))
+          o (and order-id (store/order st order-id))]
+      (when-not (and o (registry/order-ready? o))
+        [{:rule :order-not-verified
+          :detail (str order-id " は未検証または未登録、もしくは存在しない -- 検証済み・登録済み受注記録が無い状態での出荷調整提案")}]))))
 
-;; ----------------------------- governor evaluation -----------------------------
+(defn- shipment-quantity-exceeded-violations
+  "For `:shipment-coordinate`, INDEPENDENTLY recompute whether the
+  order's own recorded shipped-to-date plus the proposal's claimed
+  quantity would exceed the order's own recorded `:quantity`."
+  [{:keys [op]} proposal st]
+  (when (= op :shipment-coordinate)
+    (let [{:keys [order-id quantity]} (:value proposal)
+          o (and order-id (store/order st order-id))]
+      (cond
+        (not (registry/shipment-quantity-checkable? o quantity))
+        [{:rule :shipment-quantity-exceeded
+          :detail "受注数量/既存出荷実績/申請量のいずれかが数値として確定できない -- 空き容量を検算できないため出荷しない"}]
 
-(defn evaluate
-  "Evaluate a proposal against all hard and soft gates.
-  Returns a map:
-    {:holds? boolean
-     :hard-violations [...]
-     :soft-violations [...]
-     :clean? boolean}"
-  [proposal st]
-  (let [hard-checks-store [spec-basis-violations
-                           plant-verification-violations
-                           batch-verification-violations
-                           process-control-block-violations]
-        hard-checks-value [quality-defect-escalation-violations]
-        soft-checks [confidence-gate-violations]
-        hard-violations-store (mapcat #(% proposal st) hard-checks-store)
-        hard-violations-value (mapcat #(% proposal (:value proposal)) hard-checks-value)
-        hard-violations (concat hard-violations-store hard-violations-value)
-        soft-violations (mapcat #(% proposal (:value proposal)) soft-checks)]
-    {:holds? (seq hard-violations)
-     :hard-violations (vec hard-violations)
-     :soft-violations (vec soft-violations)
-     :clean? (and (empty? hard-violations) (empty? soft-violations))}))
+        (registry/shipment-quantity-exceeded? o quantity)
+        [{:rule :shipment-quantity-exceeded
+          :detail (str order-id " の記録済み受注数量(" (:quantity o)
+                       ")を、既存出荷実績(" (:shipped-quantity o 0)
+                       ")+今回申請(" quantity ")が超過")}]))))
+
+(defn- invalid-size-code-violations
+  "For `:pattern-spec`, if the patch declares a `:size-code` outside
+  the closed known set, reject rather than let a fabricated size through."
+  [{:keys [op]} proposal]
+  (when (= op :pattern-spec)
+    (let [size (:size-code (:value proposal))]
+      (when (and (some? size) (not (registry/size-code-valid? size)))
+        [{:rule :invalid-size-code
+          :detail (str size " は既知の size-code 値ではない")}]))))
+
+(defn check
+  "Censors an ApparelAdvisor proposal against the governor rules.
+  Returns {:ok? bool :violations [..] :confidence c :escalate? bool
+  :high-stakes? bool :hard? bool}."
+  [request _context proposal st]
+  (let [hard (into []
+                   (concat (no-propose-effect-violations request)
+                           (unknown-op-violations request)
+                           (equipment-control-blocked-violations proposal)
+                           (sewing-control-blocked-violations proposal)
+                           (safety-cert-decision-blocked-violations proposal)
+                           (order-not-verified-violations request proposal st)
+                           (shipment-quantity-exceeded-violations request proposal st)
+                           (invalid-size-code-violations request proposal)))
+        conf (:confidence proposal 0.0)
+        low? (< conf confidence-floor)
+        stakes? (boolean (high-stakes (:stake proposal)))
+        hard? (boolean (seq hard))]
+    {:ok?          (and (not hard?) (not low?) (not stakes?))
+     :violations   hard
+     :confidence   conf
+     :hard?        hard?
+     :escalate?    (and (not hard?) (or low? stakes?))
+     :high-stakes? stakes?}))
+
+(defn hold-fact
+  "The audit fact written when a proposal is rejected (HOLD)."
+  [request context verdict]
+  {:t          :governor-hold
+   :op         (:op request)
+   :actor      (:actor-id context)
+   :subject    (:subject request)
+   :disposition :hold
+   :basis      (mapv :rule (:violations verdict))
+   :violations (:violations verdict)
+   :confidence (:confidence verdict)})

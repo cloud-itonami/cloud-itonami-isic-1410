@@ -1,136 +1,160 @@
 (ns apparel.store
-  "SSoT for the apparel-manufacturing plant-operations coordinator.
+  "SSoT for the apparel-manufacturing plant-operations coordination
+  actor, behind a `Store` protocol so the backend is a swap, not a
+  rewrite -- the same seam every `cloud-itonami-isic-*` actor uses.
 
-  In-memory reference implementation; production systems would use Datomic or a
-  similar persistent event store. The read accessors and guards below are the
-  facts the governor censors against — **they are never inferred from a
-  proposal**, which is the whole point of having a store the advisor cannot
-  write to directly.
+  Scope note: this build ships a single `MemStore` backend only (atom
+  of EDN) -- the deterministic default for dev/tests/demo, no deps.
+  A pattern-craft engine is explicitly OUT of this wave.
 
-  ## 台帳は append-only
+  Four kinds of entity live here:
+    - `orders`     -- production orders. `:verified?` / `:registered?`
+                       ground-truth flags; `:quantity` and
+                       `:shipped-quantity` for headroom.
+    - `patterns`   -- size-spec *metadata* records (not craft geometry).
+                       Same verified/registered discipline.
+    - `quality-flags` -- append-only quality/labeling concern flags.
+    - `shipments`  -- proposed outbound shipment DRAFTs.
 
-  『どのバッチが誰の承認で記録されたか / どの提案が何の違反で止まったか』は
-  常に不変ログへの query。ここが監査可能性の実体で、**確定した事実と止めた事実の
-  両方**を積む —— 止めた方を残さないと『提案されなかった』と『提案されたが
-  止まった』の区別がつかない。")
+  Plus a generic `records` map and an append-only `ledger`."
+  (:require [apparel.registry :as registry]))
 
-;; ----------------------------- store initialization -----------------------------
+(defprotocol Store
+  (order [s id])
+  (all-orders [s])
+  (pattern [s id])
+  (all-patterns [s])
+  (shipment [s id])
+  (quality-flags [s] "append-only quality-flag log")
+  (ledger [s])
+  (shipment-history [s])
+  (quality-history [s])
+  (next-shipment-sequence [s])
+  (next-quality-sequence [s])
+  (commit-record! [s record] "apply a committed op's record to the SSoT")
+  (append-ledger! [s fact] "append one immutable decision fact")
+  (get-records [s])
+  (with-orders [s orders])
+  (with-patterns [s patterns]))
+
+;; ----------------------------- sample data -----------------------------
+
+(defn- sample-orders []
+  {"order-001" {:id "order-001" :style "cotton-shirt-XL" :customer-id "buyer-acme"
+                :quantity 500 :shipped-quantity 100
+                :verified? true :registered? true
+                :plant-id "plant-001" :last-assessed "2026-07-01"}
+   "order-002" {:id "order-002" :style "linen-dress-M" :customer-id "buyer-nishijin"
+                :quantity 300 :shipped-quantity 290
+                :verified? true :registered? true
+                :plant-id "plant-001" :last-assessed "2026-07-01"}
+   "order-003" {:id "order-003" :style "denim-jacket-L" :customer-id "buyer-hakusen"
+                :quantity 200 :shipped-quantity 0
+                :verified? false :registered? false
+                :plant-id "plant-001" :last-assessed "2026-06-15"}})
+
+(defn- sample-patterns []
+  {"pattern-001" {:id "pattern-001" :style "cotton-shirt"
+                  :sizes #{:S :M :L :XL} :size-code :M
+                  :verified? true :registered? true}
+   "pattern-002" {:id "pattern-002" :style "linen-dress"
+                  :sizes #{:S :M :L} :size-code :M
+                  :verified? false :registered? false}})
+
+;; ----------------------------- shared commit helpers -----------------------------
+
+(defn- propose-shipment!
+  [s shipment-id]
+  (let [seq-n (next-shipment-sequence s)
+        result (registry/register-shipment shipment-id seq-n)]
+    {:result result
+     :patch {:shipment-number (get result "shipment_number")}}))
+
+(defn- flag-quality!
+  [s flag-id]
+  (let [seq-n (next-quality-sequence s)
+        result (registry/register-quality-flag flag-id seq-n)]
+    {:result result
+     :patch {:flag-number (get result "flag_number")}}))
+
+;; ----------------------------- MemStore -----------------------------
+
+(defrecord MemStore [a]
+  Store
+  (order [_ id] (get-in @a [:orders id]))
+  (all-orders [_] (sort-by :id (vals (:orders @a))))
+  (pattern [_ id] (get-in @a [:patterns id]))
+  (all-patterns [_] (sort-by :id (vals (:patterns @a))))
+  (shipment [_ id] (get-in @a [:shipments id]))
+  (quality-flags [_] (:quality-flags @a))
+  (ledger [_] (:ledger @a))
+  (shipment-history [_] (:shipment-history @a))
+  (quality-history [_] (:quality-history @a))
+  (next-shipment-sequence [_] (:shipment-sequence @a 0))
+  (next-quality-sequence [_] (:quality-sequence @a 0))
+  (get-records [_] (:records @a))
+  (commit-record! [s {:keys [effect path value] :as record}]
+    (cond
+      (= effect :order/upsert)
+      (swap! a update-in [:orders (first path)] merge (assoc value :id (first path)))
+
+      (= effect :pattern/upsert)
+      (swap! a update-in [:patterns (first path)] merge (assoc value :id (first path)))
+
+      (= effect :quality/flag)
+      (let [flag-id (first path)
+            {:keys [result patch]} (flag-quality! s flag-id)
+            flagged (merge value {:id flag-id} patch)]
+        (swap! a (fn [state]
+                   (-> state
+                       (update :quality-sequence (fnil inc 0))
+                       (update :quality-flags conj flagged)
+                       (update :quality-history registry/append result))))
+        result)
+
+      (= effect :shipment/propose)
+      (let [shipment-id (first path)
+            order-id (:order-id value)
+            {:keys [result patch]} (propose-shipment! s shipment-id)]
+        (swap! a (fn [state]
+                   (-> state
+                       (update :shipment-sequence (fnil inc 0))
+                       (update-in [:shipments shipment-id] merge (assoc value :id shipment-id) patch)
+                       (update :shipment-history registry/append result)
+                       (update-in [:orders order-id :shipped-quantity]
+                                  (fn [prev]
+                                    (+ (long (or prev 0))
+                                       (long (or (:quantity value) 0))))))))
+        result)
+
+      (and (nil? effect) (:id record))
+      (swap! a assoc-in [:records (:id record)] record)
+
+      :else nil)
+    s)
+  (append-ledger! [_ fact] (swap! a update :ledger conj fact) fact)
+  (with-orders [s orders] (when (seq orders) (swap! a assoc :orders orders)) s)
+  (with-patterns [s patterns] (when (seq patterns) (swap! a assoc :patterns patterns)) s))
 
 (defn mem-store
-  "Create an in-memory store with reference data for apparel manufacturing."
+  "A fresh, empty MemStore."
   []
-  {:data (atom {
-           :plants {
-             "plant-001" {:name "Community Apparel Factory A"
-                         :location "Vietnam"
-                         :registered? true
-                         :jurisdiction :VNM}}
-           :production-batches {
-             "batch-001" {:plant "plant-001"
-                         :style "cotton-shirt-XL"
-                         :quantity 500
-                         :verified? true
-                         :quality-grade "standard"}
-             "batch-002" {:plant "plant-001"
-                         :style "linen-dress-M"
-                         :quantity 300
-                         :verified? false
-                         :quality-grade "standard"}}
-           :shipments {
-             "ship-001" {:batch "batch-001"
-                        :destination "wholesale-buyer-A"
-                        :qty 500
-                        :scheduled-date "2026-07-20"
-                        :status :pending}}
-           :maintenance-log {
-             "maint-001" {:equipment "cutting-machine-03"
-                         :last-service "2026-06-15"
-                         :status :operational}}})})
+  (->MemStore (atom {:orders {} :patterns {} :shipments {}
+                     :records {} :quality-flags []
+                     :ledger [] :shipment-sequence 0 :shipment-history []
+                     :quality-sequence 0 :quality-history []})))
 
-;; ----------------------------- accessors -----------------------------
+(defn sample-data!
+  "Seeds `s` with a small offline order + pattern set:
+    - order-001 verified+registered with shipping headroom
+    - order-002 verified+registered nearly fully shipped (small new
+      shipment blows through quantity -- HARD hold)
+    - order-003 UNVERIFIED/unregistered (blocks shipment)
+    - pattern-001 verified+registered size-spec
+    - pattern-002 UNVERIFIED/unregistered"
+  [s]
+  (with-orders s (sample-orders))
+  (with-patterns s (sample-patterns))
+  s)
 
-(defn plant
-  "Get plant record by ID."
-  [st plant-id]
-  (get-in @(:data st) [:plants plant-id]))
-
-(defn production-batch
-  "Get production batch record by ID."
-  [st batch-id]
-  (get-in @(:data st) [:production-batches batch-id]))
-
-(defn shipment
-  "Get shipment record by ID."
-  [st shipment-id]
-  (get-in @(:data st) [:shipments shipment-id]))
-
-(defn equipment
-  "Get equipment maintenance record by ID."
-  [st equipment-id]
-  (get-in @(:data st) [:maintenance-log equipment-id]))
-
-;; ----------------------------- guards -----------------------------
-
-(defn plant-verified?
-  "Check if plant is registered and authorized."
-  [st plant-id]
-  (let [p (plant st plant-id)]
-    (:registered? p false)))
-
-(defn batch-verified?
-  "Check if production batch is verified."
-  [st batch-id]
-  (let [b (production-batch st batch-id)]
-    (:verified? b false)))
-
-(defn batch-plant-verified?
-  "Check if batch's plant is verified."
-  [st batch-id]
-  (let [b (production-batch st batch-id)
-        plant-id (:plant b)]
-    (plant-verified? st plant-id)))
-
-;; ----------------------------- commit / ledger -----------------------------
-
-(defn commit-record!
-  "確定した提案を SSoT に反映する。
-
-  `record` は `{:effect .. :path [..] :value ..}`。effect ごとに書き先を固定して
-  あるのは、advisor が任意の場所に書ける経路を作らないため —— 提案が持ち込める
-  のは『どのエンティティを、宣言済みの effect の形で』までで、書き先そのものは
-  この関数が決める。"
-  [st {:keys [effect path value]}]
-  (let [id (first path)]
-    (case effect
-      :batch/upsert
-      (swap! (:data st) update-in [:production-batches id] merge value)
-
-      :maintenance/schedule
-      (swap! (:data st) update-in [:maintenance-log id] merge value)
-
-      :shipment/coordinate
-      (swap! (:data st) update-in [:shipments id] merge value)
-
-      :quality-defect/flag
-      (swap! (:data st) update :quality-defects (fnil conj []) (assoc value :id id))
-
-      ;; 未知の effect は書かない。governor が allowlist で止めているので通常
-      ;; ここには来ないが、**来たときに黙って書かない**のが二重の床。
-      nil)
-    nil))
-
-(defn append-ledger!
-  "不変の決定事実を 1 件積む。"
-  [st fact]
-  (swap! (:data st) update :ledger (fnil conj []) fact)
-  fact)
-
-(defn get-ledger
-  "append-only の決定台帳。"
-  [st]
-  (get @(:data st) :ledger []))
-
-(defn quality-defects
-  "flag された品質不良の append-only ログ。"
-  [st]
-  (get @(:data st) :quality-defects []))
+(defn get-ledger [s] (ledger s))
