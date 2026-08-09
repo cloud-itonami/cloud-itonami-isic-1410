@@ -71,6 +71,10 @@ clojure -M:dev:test
 # Run the demo
 clojure -M:dev:run
 
+# Regenerate docs/samples/operator-console.html through the REAL actor
+# (flagship checklist item 2 — apparel.render-html)
+clojure -M:dev:render-html
+
 # Lint
 clojure -M:lint
 ```
