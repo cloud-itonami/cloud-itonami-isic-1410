@@ -1,48 +1,88 @@
-# cloud-itonami-isic-1410
+# cloud-itonami-isic-1410: Manufacture of wearing apparel
 
-Open Business Blueprint for **ISIC 1410**: manufacture of wearing
-apparel (except fur) — the downstream *clothing* (衣) vertical of the
-衣食住 scaffold batch (ADR-2607122200), paired with
+Open Business Blueprint for **ISIC Rev.5 1410**: manufacture of wearing
+apparel (except fur) — an autonomous "actor" (LLM advisor behind an
+independent Governor, langgraph-clj StateGraph, append-only audit
+ledger) that coordinates back-office apparel-plant **operations**:
+order intake, pattern/size-spec *metadata* (not a craft engine this
+wave), quality/labeling concern flagging, and outbound shipment
+coordination.
+
+This repository designs a forkable OSS business for community apparel
+manufacturing — fair-labor transparency is a first-class social impact
+— run by a qualified operator so a garment plant keeps its own
+operating records instead of renting a closed SaaS. Paired with
 [cloud-itonami-isic-1311](https://github.com/cloud-itonami/cloud-itonami-isic-1311)
 (textile spinning) upstream.
 
-**Maturity: `:implemented`** — `src/apparel/` implements the
-`ApparelOperationActor` as a `langgraph.graph` StateGraph
-(`apparel.actor/build`) wired to the contained advisor
-(`apparel.advisor`, injected behind a protocol) and the independent
-`apparel.governor`:
-`:intake -> :advise -> :govern -> :decide -+-> :commit (clean)
-+-> :request-approval (interrupt-before, human-in-the-loop)
-+-> :hold (hard violation)`.
+## What this actor does
 
-不変条件は 1 つ: **governor が拒否した書き込みは決して起きない**。
-SSoT を書くノードは `:commit` の 1 箇所だけで、止めた事実も台帳に積む
-（残さないと『提案されなかった』と『提案されたが止まった』の区別がつかない）。
-phase gate が緩められるのは『自動で確定してよいか』だけで『通してよいか』
-ではなく、HARD 違反は phase では覆せない。
+Proposes **plant operations coordination**, not machine operation:
+- `:order-intake` — production-order intake / administrative record logging
+- `:pattern-spec` — pattern/size-spec *metadata* update (no craft engine this wave)
+- `:quality-flag` — surface a quality/labeling concern (always escalates)
+- `:shipment-coordinate` — outbound garment shipment coordination proposal
 
-39 tests / 149 assertions green（`clojure -M:dev:test`）。 ISIC division 13-14 (textiles/apparel) sits in **rollout
-Wave 3 (production/robotics)** of the reverse-toposort plan
-(ADR-2607121000): implementation is gated on the robotics premise
-(ADR-2607011000). Publishing the blueprint now is deliberate
-ammunition loading for when that gate opens (ADR-2607122100 Track A).
+## What this actor does NOT do
 
-## What the implemented actor will be
+**CRITICAL SCOPE BOUNDARY** (sewing lines, cutters, presses; safety certification):
 
-**ApparelOps-LLM ⊣ Apparel Governor** — the fleet-standard pattern:
-the advisor LLM drafts order intake, pattern/size-spec management,
-cut-plan and QC scheduling, and per-lot supply-chain provenance
-(fair-labor transparency is a first-class social impact here); the
-independent `:apparel-governor` (a keyword unique fleet-wide) gates
-every action; physical-domain work (cutting, sewing, pressing,
-packing) is executed by robots under `kotoba-lang/robotics` safety
-classes, never dispatched directly by the LLM.
+- Does NOT control sewing, cutting, or pressing equipment directly
+- Does NOT finalize a safety certificate (`:safety-cert-finalized?` permanently blocked)
+- Does NOT run a pattern craft engine (geometry / grading / CAD) — later wave
+- Does NOT make plant-safety or labor-safety decisions (plant supervisor exclusive)
+- ONLY proposes/coordinates operations back-office; high-stakes actuation requires explicit human approval
+- Quality-flag always escalates — never auto-decided
 
-Operating states: `intake → design → produce → inspect → package → audit`.
+## Architecture
 
-## Why open
+Classic governed-actor pattern (`apparel.operation/build`, a langgraph-clj StateGraph):
+1. **`apparel.advisor`** (sealed intelligence node, `ApparelAdvisor`): proposes decisions only, never commits
+2. **`apparel.governor`** (independent, `Apparel Governor` / `:apparel-governor`): validates against domain rules, re-derived from `apparel.registry`'s pure functions and `apparel.store`'s SSoT -- never trusts the advisor's own self-report
+   - HARD invariants (always `:hold`, no override):
+     - Request `:effect` must be `:propose`
+     - `:op` must be in the closed four-op allowlist
+     - Proposal `:effect` must be one of the four propose-shaped effects
+     - Direct sewing/cutting/pressing control (`:direct-operate? true`) is PERMANENT, unconditional block
+     - Finalizing a safety cert (`:safety-cert-finalized? true`) is PERMANENT, unconditional block
+     - Order must be independently verified/registered before shipment coordination
+     - A shipment may not push an order's own recorded shipped quantity past its own logged quantity
+     - No fabricated `:size-code` on a pattern-spec patch
+   - ESCALATE (always human sign-off, overridable by a human):
+     - `:quality-flag` always escalates, regardless of confidence
+     - Low-confidence proposals
+3. **`apparel.phase`** (Phase 0->3 rollout): `:pattern-spec`/`:quality-flag`/`:shipment-coordinate` are NEVER in any phase's `:auto` set; only `:order-intake` may auto-commit at phase 3 when clean
+4. **`apparel.store`** (append-only audit ledger + SSoT): a single `MemStore` backend behind a `Store` protocol
 
-AGPL-3.0-or-later, forkable by any qualified operator, so local
-garment makers never surrender production and provenance data to a
-closed SaaS. Part of the [cloud-itonami](https://itonami.cloud) open
-business fleet.
+Also ships `apparel.facts` — a starting per-jurisdiction compliance
+catalog (VNM/BGD/USA/IND/GBR/DEU) with official spec-basis citations
+for fair-labor / labeling requirements. Additive, honest coverage
+reporting; not a claim of global coverage.
+
+## Development
+
+```bash
+# Run tests (top-level deps.edn already pins langgraph+langchain local/root)
+clojure -M:test
+
+# Run tests via the workspace :dev override alias (equivalent, kept for sibling-repo parity)
+clojure -M:dev:test
+
+# Run the demo
+clojure -M:dev:run
+
+# Lint
+clojure -M:lint
+```
+
+## Status
+
+`:implemented` — minimal but real actor stack:
+`operation.cljc`/`governor.cljc`/`store.cljc`/`advisor.cljc`/
+`registry.cljc`/`phase.cljc`/`sim.cljc` + `deps.edn` complete the
+module set; tests green, demo runnable, langgraph-clj integration
+verified. Pattern craft engine is **not** in this wave.
+
+## License
+
+AGPL-3.0-or-later

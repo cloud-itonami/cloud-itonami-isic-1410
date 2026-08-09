@@ -9,4 +9,21 @@
  :itonami.blueprint/required-technologies [:robotics :identity :forms :dmn :bpmn :audit-ledger :cae]
  :itonami.blueprint/optional-technologies [:optimization :telemetry]
  :itonami.blueprint/status :public-oss
- :itonami.blueprint/maturity :implemented}
+ :itonami.blueprint/maturity :implemented
+ :itonami.blueprint/implemented-slice
+ "ApparelAdvisor ⊣ Apparel Governor, langgraph-clj StateGraph,
+ append-only audit ledger. A plant OPERATIONS COORDINATION actor for
+ apparel manufacturing (ISIC 1410) -- not direct sewing/cutting-line
+ control authority and not a pattern craft engine. Four ops
+ (`:order-intake` / `:pattern-spec` / `:quality-flag` /
+ `:shipment-coordinate`), all `:effect :propose` only. Concrete
+ governor checks: propose-only effect, closed op allowlist, closed
+ proposal-effect allowlist (no sewing-machine control), permanent
+ direct-operate block, permanent safety-cert-finalization block,
+ independent order verification/registration before shipment
+ coordination, independent shipment-quantity recompute against the
+ order's own logged quantity, and size-code validation on pattern-spec
+ metadata. Quality-flag ALWAYS escalates to a human plant supervisor;
+ `:order-intake` is the only op eligible to auto-commit, and only at
+ phase 3 when governor-clean. Pattern craft engine deliberately out of
+ this wave."}

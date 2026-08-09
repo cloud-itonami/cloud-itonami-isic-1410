@@ -23,7 +23,7 @@ cd cloud-itonami-isic-1410
 clojure -M:test
 ```
 
-Expect green if maturity is `blueprint`. Fix failures before operating.
+Expect green if maturity is `implemented`. Fix failures before operating.
 
 ## 3. Open the product face
 
