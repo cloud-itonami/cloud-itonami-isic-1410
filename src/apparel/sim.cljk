@@ -1,5 +1,5 @@
 (ns apparel.sim
-  "Demo driver -- `clojure -M:dev:run`. Walks a clean apparel plant
+  "Demo driver -- `kbb -M:dev:run`. Walks a clean apparel plant
   through order intake -> pattern-spec (escalate/approve) ->
   quality-flag (escalate/approve) -> shipment coordination
   (escalate/approve), then shows HARD-hold scenarios: a mis-wired
