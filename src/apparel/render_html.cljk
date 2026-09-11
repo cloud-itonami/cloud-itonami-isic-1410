@@ -6,7 +6,7 @@
   This namespace drives the REAL actor stack
   (`apparel.operation` -> `apparel.governor` -> `apparel.store`) through
   a scenario adapted from this repo's own `apparel.sim` demo driver
-  (`clojure -M:dev:run`, confirmed BEFORE writing this file to produce a
+  (`kbb -M:dev:run`, confirmed BEFORE writing this file to produce a
   sensible ledger against the real seeded order/pattern ids
   `order-001`..`order-003` and `pattern-001`/`pattern-002` that match
   `apparel.store/sample-data!` -- the `:commit` node genuinely calls
@@ -23,7 +23,7 @@
   shape follows the 1313 finishingops-class actor (operation/governor/
   store/sim four-op plant-ops coordination).
 
-  Usage: `clojure -M:dev:render-html [out-file]`
+  Usage: `kbb -M:dev:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [jp-go-dds.skin]
             [kotoba.lang.text :as str]
@@ -209,7 +209,7 @@
      "<main>\n"
      "  <section class=\"card\">\n"
      "    <h2>Production orders</h2>\n"
-     "    <p class=\"muted\">Demo snapshot — build-time-generated from <code>apparel.store</code> via <code>apparel.render-html</code> (<code>clojure -M:dev:render-html</code>), regenerated nightly.</p>\n"
+     "    <p class=\"muted\">Demo snapshot — build-time-generated from <code>apparel.store</code> via <code>apparel.render-html</code> (<code>kbb -M:dev:render-html</code>), regenerated nightly.</p>\n"
      "    <table>\n"
      "      <thead><tr><th>Order</th><th>Style</th><th>Customer</th><th>Shipped / Qty</th><th>Verification</th><th>Last op status</th></tr></thead>\n"
      "      <tbody>\n"
