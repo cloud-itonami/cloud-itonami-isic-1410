@@ -27,7 +27,7 @@
      :stake      kw|nil         ; :coordination/quality-concern | nil
      :confidence 0..1
      :value      map}"
-  (:require #?(:clj  [clojure.edn :as edn]
+  (:require #?(:clj  [kotoba.lang.edn :as edn]
                :cljs [cljs.reader :as edn])
             [kotoba.lang.text :as str]
             [apparel.registry :as registry]
