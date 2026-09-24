@@ -1,5 +1,5 @@
 (ns apparel.registry-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [apparel.registry :as r]))
 
 (deftest order-is-verified-when-flagged
