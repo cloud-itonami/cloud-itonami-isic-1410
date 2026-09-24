@@ -1,7 +1,7 @@
 (ns apparel.operation-test
   "Smoke tests for the compiled ApparelOperationActor graph itself
   (build + one happy path per op)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [apparel.operation :as op]
             [apparel.store :as store]))

@@ -2,7 +2,7 @@
   "The phase table as executable tests. The invariant this repo cannot
   regress on: `:pattern-spec` / `:quality-flag` / `:shipment-coordinate`
   must NEVER be a member of any phase's `:auto` set."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [apparel.phase :as phase]))
 
 (deftest pattern-spec-never-auto-at-any-phase

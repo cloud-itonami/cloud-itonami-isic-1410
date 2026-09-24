@@ -2,7 +2,7 @@
   "The governor contract as executable tests -- this vertical's own
   scope boundary ('does NOT control sewing/cutting machines directly;
   does NOT finalize safety certificates') implemented faithfully."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [apparel.store :as store]
             [apparel.operation :as op]))
