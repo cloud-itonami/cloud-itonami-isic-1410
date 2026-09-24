@@ -1,0 +1,31 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README has no "Robotics premise" section. The apparel plant cuts and sews
+;; garments. Its physical work here: fusing interlining onto garment parts in
+;; a fusing press, and packing finished garments into shipping cartons.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-1410"
+ :cases
+ [{:id :interlining-fusing-press
+   :kind :thermal
+   :procedure "fusing press heats a garment part with its interlining between two heated platens until the glue line reaches fusing temperature; swept :thickness-m is HALF the thickness (heated face to mid-plane), mid-plane adiabatic by symmetry, so the back face is the middle"
+   :params {:conductivity-w-mk 0.05 :density-kg-m3 400.0 :specific-heat-j-kgk 1300.0
+            :t0-c 25.0 :t-hot-c 150.0 :h-front-w-m2k 300.0 :t-back-ambient-c 150.0 :h-back-w-m2k 0.0
+            :threshold-c 120.0 :duration-s 60.0 :nodes 11}
+   :sweep {:param :thickness-m :values [0.00025 0.0005 0.00075 0.001 0.0015]}
+   :quantity :time-to-threshold-s
+   :limit {:max 15.0 :basis "estimate: 15 s press cycle for a fusible interlining"}
+   :boundary {:lo 0.0001 :hi 0.003}}
+  {:id :garment-to-carton
+   :kind :manipulator
+   :procedure "arm lifts a folded, bagged garment bundle from the packing table into a shipping carton"
+   :params {:l1-m 0.45 :l2-m 0.40 :m1-kg 4.0 :m2-kg 3.0
+            :from [0.30 0.45] :to [0.60 -0.15] :duration-s 1.5 :steps 400}
+   :sweep {:param :payload-kg :values [0.5 1.0 2.0 3.0 4.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 30.0 :basis "estimate: continuous shoulder torque of a light collaborative arm (~3 kg class)"}
+   :boundary {:lo 0.1 :hi 20.0}}]}
